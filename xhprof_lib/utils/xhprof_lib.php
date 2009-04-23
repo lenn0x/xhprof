@@ -35,6 +35,8 @@ function xhprof_get_possible_metrics() {
          "ut" => array("User", "microsecs", "user cpu time" ),
          "st" => array("Sys", "microsecs", "system cpu time"),
          "cpu" => array("Cpu", "microsecs", "cpu time"),
+         "pfn" => array("Prototype filename", "filename", "filename"),
+         "pln" => array("Prototype line number", "lineno", "lineno"),
          "mu" => array("MUse", "bytes", "memory usage"),
          "pmu" => array("PMUse", "bytes", "peak memory usage"),
          "samples" => array("Samples", "samples", "cpu time"));
@@ -94,6 +96,23 @@ function xhprof_build_parent_child_key($parent, $child) {
   }
 }
 
+/**
+ *  Gets the longest call from the calls array
+ *
+ *  @param   array  $call_data     XHProf call data
+ *
+ *  @return  array  longest call info time
+ *
+ */
+function xhprof_get_longest_call($calls) {
+  $longest_call = array("wt" => -1);
+  foreach($calls as $call) {
+    if($call["wt"] > $longest_call["wt"]) {
+      $longest_call = $call;
+    }
+  }
+  return $longest_call;
+}
 
 /**
  * Checks if XHProf raw data appears to be valid and not corrupted.
@@ -381,6 +400,7 @@ function xhprof_compute_flat_info($raw_data, &$overall_totals) {
 
   $metrics = xhprof_get_metrics($raw_data);
 
+
   $overall_totals = array( "ct" => 0,
                            "wt" => 0,
                            "ut" => 0,
@@ -534,6 +554,13 @@ function xhprof_compute_inclusive_times($raw_data) {
       foreach ($metrics as $metric) {
         $symbol_tab[$child][$metric] += $info[$metric];
       }
+    }
+    if(!empty($info["pln"]) && !empty($info["pfn"])) {
+      $symbol_tab[$child]["pln"] = $info["pln"];
+      $symbol_tab[$child]["pfn"] = $info["pfn"];
+    }
+    if(!empty($info["calls"])) {
+      $symbol_tab[$child]["calls"] = $info["calls"];
     }
   }
 

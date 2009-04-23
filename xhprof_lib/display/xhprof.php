@@ -754,7 +754,40 @@ function print_function_info($url_params, $info, $sort, $run1, $run2) {
                                              'symbol', $info["fn"]));
 
   print('<td>');
-  print(xhprof_render_link($info["fn"], $href));
+  if(!empty($info["pln"]) || !empty($info["calls"])) {
+    $id = "symbol_" . preg_replace('/[^a-z0-9]+/i','',$info["fn"]);
+    $prototype_info = "";
+    $longest_call = "";
+    $link_class = NULL;
+
+    if(!empty($info["pln"])) {
+      $prototype_info = "defined in {$info["pfn"]} - on line {$info["pln"]}";
+      $link_class = "more_info_available";
+    }
+
+    if(!empty($info["calls"])) {
+      $link_class = "more_info_available";
+      if(!empty($info["pln"])) {
+        $longest_call .= " - ";
+      } else {
+        $longest_call .= "(builtin function) - ";
+      }
+      $call = xhprof_get_longest_call($info["calls"]);
+      $longest_call .= "<strong>longest call</strong> - {$call["wt"]} microseconds in {$call["fn"]} on line {$call["ln"]}";
+    }
+
+    print(xhprof_render_link($info["fn"], $href, $link_class, $id, $prototype_info . $longest_call));
+
+    /* this JS could be optimized more, at the end for performance, etc */
+    print('<script type="text/javascript">
+    $(function() {
+      $(\'#'. $id .'\').tooltip({ 
+      track: true, delay: 0, showURL: false, showBody: " - ", fade: 250, extraClass: "extended_info"}); });</script>'
+    );
+  }
+  else {
+    print(xhprof_render_link($info["fn"], $href));
+  }
   print("</td>\n");
 
   if ($display_calls) {
@@ -1469,6 +1502,7 @@ function displayXHProfReport($xhprof_runs_impl, $url_params, $source,
       $xhprof_data = $data['raw'];
       $description = $data['description'];
     }
+
 
 
     profiler_single_run_report($url_params,

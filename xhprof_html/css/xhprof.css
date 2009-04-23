@@ -80,3 +80,10 @@ ul.xhprof_actions li a:hover {
   color:#FFFFFF;
 }
 
+.extended_info {
+  font-size: .7em;
+}
+
+.more_info_available {
+  font-style: oblique;
+}

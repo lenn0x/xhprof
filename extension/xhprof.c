@@ -80,6 +80,7 @@
 #define XHPROF_FLAGS_NO_BUILTINS  0x0001          /* do not profile builtins */
 #define XHPROF_FLAGS_CPU          0x0002       /* gather CPU times for funcs */
 #define XHPROF_FLAGS_MEMORY       0x0004    /* gather memory usage for funcs */
+#define XHPROF_FLAGS_EXTENDED_INFO 0x0008     /* gather extended statistics for funcs */
 
 /* Constants for XHPROF_MODE_SAMPLED        */
 #define XHPROF_SAMPLING_INTERVAL       100000      /* In microsecs        */
@@ -114,6 +115,10 @@ typedef struct hp_entry_t {
   uint64                  tsc_start;         /* start value for TSC counter  */
   long int                mu_start_hprof;                    /* memory usage */
   long int                pmu_start_hprof;              /* peak memory usage */
+  char                    *filename;                    /* filename */
+  char                    *prototype_filename;                    /* prototype filename */
+  long int                lineno;                    /* line number */
+  long int                prototype_lineno;                    /* prototype line number */
   struct rusage           ru_start_hprof;             /* user/sys time start */
   struct hp_entry_t      *prev_hprof;    /* ptr to prev entry being profiled */
   uint8                   hash_code;     /* hash_code for the function name  */
@@ -194,6 +199,8 @@ typedef struct hp_global_t {
   /* counter table indexed by hash value of function names. */
   uint8  func_hash_counters[256];
 
+  /* extended profiling information */
+  zend_bool extended_info;
 } hp_global_t;
 
 
@@ -477,6 +484,10 @@ static void hp_register_constants(INIT_FUNC_ARGS) {
   REGISTER_LONG_CONSTANT("XHPROF_FLAGS_MEMORY",
                          XHPROF_FLAGS_MEMORY,
                          CONST_CS | CONST_PERSISTENT);
+
+  REGISTER_LONG_CONSTANT("XHPROF_FLAGS_EXTENDED_INFO",
+                         XHPROF_FLAGS_EXTENDED_INFO,
+                         CONST_CS | CONST_PERSISTENT);
 }
 
 /**
@@ -568,11 +579,18 @@ void hp_clean_profiler_state(TSRMLS_D) {
  *        CALLING FUNCTION OR BY CALLING TSRMLS_FETCH()
  *        TSRMLS_FETCH() IS RELATIVELY EXPENSIVE.
  */
-#define BEGIN_PROFILING(entries, symbol)                                \
+#define BEGIN_PROFILING(entries, symbol, file)                          \
   do {                                                                  \
     hp_entry_t *cur_entry = hp_fast_alloc_hprof_entry();                \
     (cur_entry)->name_hprof = symbol;                                   \
     (cur_entry)->prev_hprof = (*(entries));                             \
+    (cur_entry)->prototype_filename = NULL;                             \
+    if (hp_globals.xhprof_flags & XHPROF_FLAGS_EXTENDED_INFO) {         \
+      (cur_entry)->prototype_filename = file;                           \
+    }                                                                   \
+    (cur_entry)->filename = NULL;                                       \
+    (cur_entry)->lineno = 0;                                            \
+    (cur_entry)->prototype_lineno = 0;                                  \
     /* Call the universal callback */                                   \
     hp_mode_common_beginfn((entries), (cur_entry) TSRMLS_CC);           \
     /* Call the mode's beginfn callback */                              \
@@ -604,6 +622,19 @@ void hp_clean_profiler_state(TSRMLS_D) {
     (*(entries)) = (*(entries))->prev_hprof;                            \
     hp_fast_free_hprof_entry(cur_entry);                                \
   } while (0)
+
+/*
+ * Add file name and line information
+*/
+#define ADD_FILE_LINE(entries, exdata) \
+  do { \
+    zend_op *cur_opcode; \
+    if(exdata->op_array) { \
+      entries->filename = current_data->op_array->filename; \
+      cur_opcode = *EG(opline_ptr); \
+      entries->lineno = cur_opcode->lineno; \
+    } \
+  } while(0)
 
 
 /**
@@ -1369,8 +1400,11 @@ void hp_mode_sampled_beginfn_cb(hp_entry_t **entries,
  */
 zval * hp_mode_shared_endfn_cb(hp_entry_t *top,
                                char          *symbol  TSRMLS_DC) {
-  zval    *counts;
+  zval    *counts, *calls, *current_call;
   uint64   tsc_end;
+  void *hdata;
+  ulong hcomp;
+  long wt;
 
   double gtod_value, rdtsc_value;
 
@@ -1385,8 +1419,39 @@ zval * hp_mode_shared_endfn_cb(hp_entry_t *top,
   /* Bump stats in the counts hashtable */
   hp_inc_count(counts, "ct", 1  TSRMLS_CC);
 
-  hp_inc_count(counts, "wt", get_us_from_tsc(tsc_end - top->tsc_start,
-        hp_globals.cpu_frequencies[hp_globals.cur_cpu_id]) TSRMLS_CC);
+  wt = get_us_from_tsc(tsc_end - top->tsc_start, hp_globals.cpu_frequencies[hp_globals.cur_cpu_id]);
+  hp_inc_count(counts, "wt", wt TSRMLS_CC);
+
+  /* Add line number and filename for stack and prototype */
+  if(top->filename && (hp_globals.xhprof_flags & XHPROF_FLAGS_EXTENDED_INFO)) {
+    /* Ok I fibbed a little, prototype_* are replaced but I get to save a lookup for what is arbitrary [static] data anyways */
+    if(top->prototype_filename && top->prototype_lineno > 0) {
+      add_assoc_long(counts, "pln", top->prototype_lineno);
+      add_assoc_string(counts, "pfn", top->prototype_filename, 1);
+    }
+
+    MAKE_STD_ZVAL(current_call);
+    array_init(current_call);
+    add_assoc_string(current_call, "fn", top->filename, 1);
+    add_assoc_long(current_call, "ln", top->lineno);
+    add_assoc_long(current_call, "wt", wt);
+
+    if(!zend_hash_exists(HASH_OF(counts), "calls", sizeof("calls"))) {
+      MAKE_STD_ZVAL(calls);
+      array_init(calls);
+      add_assoc_zval(counts, "calls", calls);
+    } else {
+      hcomp = zend_hash_func("calls", sizeof("calls"));
+      if(zend_hash_quick_find(HASH_OF(counts), "calls", sizeof("calls"), hcomp, (void **)&hdata) == SUCCESS) {
+        calls = *(zval **)hdata;
+      } else {
+        return counts;
+      }
+    }
+
+    add_next_index_zval(calls, current_call);
+  }
+
   return counts;
 }
 
@@ -1459,6 +1524,8 @@ void hp_mode_sampled_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
  */
 ZEND_DLEXPORT void hp_execute (zend_op_array *ops TSRMLS_DC) {
   char            *func = NULL;
+  zend_execute_data *current_data;
+  zend_op *cur_opcode;
 
   func = hp_get_function_name(ops TSRMLS_CC);
   if (!func) {
@@ -1466,10 +1533,18 @@ ZEND_DLEXPORT void hp_execute (zend_op_array *ops TSRMLS_DC) {
     return;
   }
 
-  BEGIN_PROFILING(&hp_globals.entries, func);
+  BEGIN_PROFILING(&hp_globals.entries, func, ops->filename);
   _zend_execute(ops TSRMLS_CC);
-  if (hp_globals.entries)
+  if (hp_globals.entries) {
+    if (hp_globals.xhprof_flags & XHPROF_FLAGS_EXTENDED_INFO) {
+      current_data = EG(current_execute_data);
+      if (current_data->function_state.function->common.type!=ZEND_INTERNAL_FUNCTION) { 
+        hp_globals.entries->prototype_lineno = current_data->function_state.function->op_array.opcodes->lineno - 1; 
+        ADD_FILE_LINE(hp_globals.entries, current_data);
+      }
+    }
     END_PROFILING(&hp_globals.entries);
+  }
   efree(func);
 }
 
@@ -1492,7 +1567,7 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data,
   func = hp_get_function_name(current_data->op_array TSRMLS_CC);
 
   if (func) {
-    BEGIN_PROFILING(&hp_globals.entries, func);
+    BEGIN_PROFILING(&hp_globals.entries, func, current_data->op_array->filename);
   }
 
   if (!_zend_execute_internal) {
@@ -1512,6 +1587,9 @@ ZEND_DLEXPORT void hp_execute_internal(zend_execute_data *execute_data,
 
   if (func) {
     if (hp_globals.entries) {
+      if (hp_globals.xhprof_flags & XHPROF_FLAGS_EXTENDED_INFO) {
+        ADD_FILE_LINE(hp_globals.entries, current_data);
+      }
       END_PROFILING(&hp_globals.entries);
     }
     efree(func);
@@ -1537,7 +1615,7 @@ ZEND_DLEXPORT zend_op_array* hp_compile_file(zend_file_handle *file_handle,
   func      = (char *)emalloc(len);
   snprintf(func, len, "load::%s", filename);
 
-  BEGIN_PROFILING(&hp_globals.entries, func);
+  BEGIN_PROFILING(&hp_globals.entries, func, filename);
   ret = _zend_compile_file(file_handle, type TSRMLS_CC);
   if (hp_globals.entries)
     END_PROFILING(&hp_globals.entries);
@@ -1606,7 +1684,7 @@ static void hp_begin(long level, long xhprof_flags TSRMLS_DC) {
     hp_init_profiler_state(level TSRMLS_CC);
 
     /* start profiling from fictitious main() */
-    BEGIN_PROFILING(&hp_globals.entries, ROOT_SYMBOL);
+    BEGIN_PROFILING(&hp_globals.entries, ROOT_SYMBOL, NULL);
   }
 }
 
