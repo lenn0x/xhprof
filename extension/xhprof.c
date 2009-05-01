@@ -57,7 +57,7 @@
  */
 
 /* XHProf version                           */
-#define XHPROF_VERSION       "0.9.0"
+#define XHPROF_VERSION       "0.9.2-dev"
 
 /* Fictitious function name to represent top of the call tree. The paranthesis
  * in the name is to ensure we don't conflict with user function names.  */
@@ -631,8 +631,12 @@ void hp_clean_profiler_state(TSRMLS_D) {
     zend_op *cur_opcode; \
     if(exdata->op_array) { \
       entries->filename = current_data->op_array->filename; \
-      cur_opcode = *EG(opline_ptr); \
-      entries->lineno = cur_opcode->lineno; \
+      if(exdata->opline) { \
+        cur_opcode = exdata->opline; \
+        if(cur_opcode) { \
+          entries->lineno = cur_opcode->lineno; \
+        } \
+      } \  
     } \
   } while(0)
 
