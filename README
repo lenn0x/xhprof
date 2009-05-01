@@ -5,3 +5,54 @@ To view the latest version of the doc, go to:
   http://pecl.php.net/package/xhprof ---> [View Documentation]
 
 
+Example with extended info enabled
+-----------------------------------
+
+<?php
+function foobar() {
+  echo "hello world";
+}
+
+xhprof_enable(XHPROF_FLAGS_EXTENDED_INFO);
+foobar();
+
+$output = xhprof_disable();
+print_r($output);
+
+?>
+
+Array
+(
+    [main()==>foobar] => Array
+        (
+            [ct] => 1
+            [wt] => 9
+            [pln] => 3
+            [pfn] => /home/goffinet/test.php
+            [calls] => Array
+                (
+                    [0] => Array
+                        (
+                            [fn] => /home/goffinet/test.php
+                            [ln] => 7
+                            [wt] => 9
+                        )
+
+                )
+
+        )
+
+    [main()==>xhprof_disable] => Array
+        (
+            [ct] => 1
+            [wt] => 0
+        )
+
+    [main()] => Array
+        (
+            [ct] => 1
+            [wt] => 35
+        )
+
+)
+
