@@ -756,6 +756,7 @@ function print_function_info($url_params, $info, $sort, $run1, $run2) {
   print('<td>');
   if(!empty($info["pln"]) || !empty($info["calls"])) {
     $id = "symbol_" . preg_replace('/[^a-z0-9]+/i','',$info["fn"]);
+    $id = "symbol_" . preg_replace('/[^a-z0-9]+/i','',$info["fn"]);
     $prototype_info = "";
     $longest_call = "";
     $link_class = NULL;
@@ -1502,7 +1503,6 @@ function displayXHProfReport($xhprof_runs_impl, $url_params, $source,
       $xhprof_data = $data['raw'];
       $description = $data['description'];
     }
-
 
 
     profiler_single_run_report($url_params,

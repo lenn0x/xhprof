@@ -1,0 +1,6 @@
+002+ foo==>bar                               : calls=*; ct=       2; pfn=*; pln=*; wt=*;
+003+ foo==>strlen                            : calls=*; ct=       1; wt=*;
+002- foo==>bar                               : ct=       2; wt=*;
+003- foo==>strlen                            : ct=       1; wt=*;
+005+ main()==>foo                            : calls=*; ct=       1; pfn=*; pln=*; wt=*;
+005- main()==>foo                            : ct=       1; wt=*;

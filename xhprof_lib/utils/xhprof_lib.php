@@ -400,7 +400,6 @@ function xhprof_compute_flat_info($raw_data, &$overall_totals) {
 
   $metrics = xhprof_get_metrics($raw_data);
 
-
   $overall_totals = array( "ct" => 0,
                            "wt" => 0,
                            "ut" => 0,
